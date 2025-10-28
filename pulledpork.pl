@@ -1191,7 +1191,6 @@ sub modify_state {
         }
     }
     print "\tDone\n" if !$Quiet;
-    undef @sid_mod;
 }
 
 ## iprep control socket!
@@ -1360,25 +1359,45 @@ sub rule_write {
     print "Writing $file....\n" if !$Quiet;
     open(WRITE, '>', "$file") || croak "Unable to write $file - $!\n";
 
-    #if ( $gid == 1 ) {
     foreach my $fn (sort keys %$categories) {
         print WRITE "\n\n# ----- Begin $fn Rules Category ----- #\n";
         foreach my $gid (sort keys %{ $categories->{$fn} }) {
             print WRITE "\n# -- Begin GID:$gid Based Rules -- #\n\n";
             foreach my $sid (sort keys %{ $categories->{$fn}{$gid} }) {
                 next unless defined $$hashref{$gid}{$sid}{'rule'};
-                if (   $enonly
-                    && $$hashref{$gid}{$sid}{'rule'}
-                    =~ /^\s*(alert|drop|pass)/)
-                {
-                    print WRITE $$hashref{$gid}{$sid}{'rule'} . "\n";
+
+                # Prefer the stored state when deciding enabled/disabled
+                my $state = $$hashref{$gid}{$sid}{'state'};    # 0 = disabled/commented, 1 = enabled
+                my $out_rule = $$hashref{$gid}{$sid}{'rule'} || '';
+
+                # Normalise comment/uncomment based on state if it's defined
+                if (defined $state) {
+                    if ($state == 0) {
+                        # ensure rule is commented, preserve leading whitespace
+                        $out_rule =~ s/^(\s*)/# $1/ unless $out_rule =~ /^\s*#/;
+                        $out_rule =~ s/^(\s*)#\s*/$1# /;    # normalize comment style
+                    }
+                    else {
+                        # ensure rule is uncommented
+                        $out_rule =~ s/^\s*#\s*//;
+                    }
                 }
-                elsif (!$enonly) {
-                    print WRITE $$hashref{$gid}{$sid}{'rule'} . "\n";
+
+                # If enonly is requested, use state when available, otherwise fall back to text check
+                if ($enonly) {
+                    if (defined $state) {
+                        next if $state == 0;
+                    }
+                    else {
+                        next unless $out_rule =~ /^\s*(alert|drop|pass)/;
+                    }
                 }
+
+                print WRITE $out_rule . "\n";
             }
         }
     }
+
     close(WRITE);
     print "\tDone\n" if !$Quiet;
 }
@@ -1605,26 +1624,7 @@ sub trim {
     if ($trimmer) {
         $trimmer =~ s/^\s*//;
         $trimmer =~ s/\s*$//;
-        return $trimmer;
-    }
-}
-
-## Does it hurt when I slash you?
-sub slash {
-    my ($operation, $string) = @_;
-    if ($operation == 0 && $string =~ /\/$/ && $string ne "") {
-        $string =~ s/\/$//;
-    }
-    elsif ($operation == 1 && $string !~ /\/$/ && $string ne "") {
-        $string = $string . "/";
-    }
-    return $string;
-}
-
-## Test the intermediate levels with exists to prevent unintended autovivification
-sub safe_defined {
-    my ($h, @keys) = @_;
-    foreach my $k (@keys) {
+        return $
         return unless ref $h eq 'HASH';
         return unless exists $h->{$k};
         $h = $h->{$k};
